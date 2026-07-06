@@ -122,9 +122,52 @@ io.on('connection', (socket) => {
     console.log(`[Room] ${code} — team2 joined (${socket.id})`);
   });
 
+  // --------------- JOIN SPECTATOR ---------------
+  socket.on('joinSpectator', ({ roomCode }) => {
+    const code = (roomCode || '').toUpperCase().trim();
+    const room = rooms[code];
+
+    if (!room) {
+      socket.emit('roomError', { message: `Room "${code}" not found. Check the code and try again.` });
+      return;
+    }
+
+    socket.join(code);
+    socket.data.roomCode = code;
+    socket.data.isSpectator = true;
+
+    socket.emit('roomJoinedSpectator', { roomCode: code });
+
+    // Send the current game state (if any) directly to the spectator
+    if (room.state) {
+      socket.emit('gameState', {
+        ...room.state,
+        roomCode: code,
+        team1Connected: !!room.sockets.team1,
+        team2Connected: !!room.sockets.team2
+      });
+    } else {
+      // If the game hasn't started yet, send lobby waiting details
+      socket.emit('gameState', {
+        stage: 'lobby_waiting',
+        roomCode: code,
+        team1Connected: !!room.sockets.team1,
+        team2Connected: !!room.sockets.team2,
+        team1: { name: room.teamNames.team1 || 'Team A', money: 35, players: [] },
+        team2: { name: room.teamNames.team2 || 'Team B', money: 35, players: [] }
+      });
+    }
+
+    console.log(`[Room] ${code} — spectator joined (${socket.id})`);
+  });
+
   // --------------- START GAME ---------------
   socket.on('startGame', ({ team1Name, team2Name }) => {
-    const { roomCode, teamId } = socket.data;
+    const { roomCode, teamId, isSpectator } = socket.data;
+    if (isSpectator) {
+      socket.emit('roomError', { message: 'Spectators cannot start the game.' });
+      return;
+    }
     const room = rooms[roomCode];
     if (!room) return;
     if (teamId !== 'team1') {
@@ -147,7 +190,11 @@ io.on('connection', (socket) => {
 
   // --------------- BID ---------------
   socket.on('bid', ({ amount }) => {
-    const { roomCode, teamId } = socket.data;
+    const { roomCode, teamId, isSpectator } = socket.data;
+    if (isSpectator) {
+      socket.emit('roomError', { message: 'Spectators cannot bid.' });
+      return;
+    }
     const room = rooms[roomCode];
     if (!room || !room.state) return;
 
@@ -167,7 +214,11 @@ io.on('connection', (socket) => {
 
   // --------------- PASS ---------------
   socket.on('pass', () => {
-    const { roomCode, teamId } = socket.data;
+    const { roomCode, teamId, isSpectator } = socket.data;
+    if (isSpectator) {
+      socket.emit('roomError', { message: 'Spectators cannot pass.' });
+      return;
+    }
     const room = rooms[roomCode];
     if (!room || !room.state) return;
 
@@ -183,7 +234,11 @@ io.on('connection', (socket) => {
 
   // --------------- SKIP PLAYER ---------------
   socket.on('skipPlayer', () => {
-    const { roomCode } = socket.data;
+    const { roomCode, isSpectator } = socket.data;
+    if (isSpectator) {
+      socket.emit('roomError', { message: 'Spectators cannot skip players.' });
+      return;
+    }
     const room = rooms[roomCode];
     if (!room || !room.state) return;
     if (room.state.biddingMode !== 'skipped') return;
@@ -194,7 +249,11 @@ io.on('connection', (socket) => {
 
   // --------------- SIMULATE MATCH ---------------
   socket.on('simulateMatch', () => {
-    const { roomCode } = socket.data;
+    const { roomCode, isSpectator } = socket.data;
+    if (isSpectator) {
+      socket.emit('roomError', { message: 'Spectators cannot simulate matches.' });
+      return;
+    }
     const room = rooms[roomCode];
     if (!room || !room.state) return;
 
@@ -204,7 +263,11 @@ io.on('connection', (socket) => {
 
   // --------------- PLAY AGAIN (reset to lobby) ---------------
   socket.on('playAgain', () => {
-    const { roomCode, teamId } = socket.data;
+    const { roomCode, teamId, isSpectator } = socket.data;
+    if (isSpectator) {
+      socket.emit('roomError', { message: 'Spectators cannot restart the game.' });
+      return;
+    }
     const room = rooms[roomCode];
     if (!room) return;
     if (teamId !== 'team1') {
@@ -225,15 +288,17 @@ io.on('connection', (socket) => {
 
   // --------------- DISCONNECT ---------------
   socket.on('disconnect', () => {
-    const { roomCode, teamId } = socket.data || {};
+    const { roomCode, teamId, isSpectator } = socket.data || {};
     if (roomCode && rooms[roomCode]) {
       const room = rooms[roomCode];
-      if (teamId) room.sockets[teamId] = null;
-
-      console.log(`[-] ${teamId} disconnected from room ${roomCode}`);
-
-      // Notify remaining player
-      io.to(roomCode).emit('opponentDisconnected', { teamId });
+      if (!isSpectator && teamId) {
+        room.sockets[teamId] = null;
+        console.log(`[-] ${teamId} disconnected from room ${roomCode}`);
+        // Notify remaining player
+        io.to(roomCode).emit('opponentDisconnected', { teamId });
+      } else if (isSpectator) {
+        console.log(`[-] spectator disconnected from room ${roomCode}`);
+      }
 
       // Clean up empty rooms
       if (!room.sockets.team1 && !room.sockets.team2) {

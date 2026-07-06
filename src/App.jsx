@@ -71,8 +71,17 @@ export default function App() {
       setLobbyError('');
     });
 
+    socket.on('roomJoinedSpectator', ({ roomCode: code }) => {
+      myTeamIdRef.current = 'spectator';
+      setRoomCode(code);
+      setMyTeamId('spectator');
+      setLobbyStage('waiting');
+      setLobbyError('');
+    });
+
     socket.on('playerJoined', ({ team1Name, team2Name }) => {
       // Use ref so we always get the latest teamId (not stale closure)
+      if (myTeamIdRef.current === 'spectator') return;
       setOpponentTeamName(myTeamIdRef.current === 'team1' ? team2Name : team1Name);
       setOpponentConnected(true);
     });
@@ -81,7 +90,7 @@ export default function App() {
       setGameState(state);
       setOpponentLeft(false);
       // Pre-fill bid input when it's my turn
-      if (state.stage === 'bidding') {
+      if (state.stage === 'bidding' && myTeamIdRef.current !== 'spectator') {
         const currentPlayer = state.auctionPlayers[state.currentPlayerIndex];
         if (currentPlayer) {
           const basePrice = currentPlayer.base_price || 1.0;
@@ -94,16 +103,32 @@ export default function App() {
     });
 
     socket.on('opponentDisconnected', () => {
-      setOpponentLeft(true);
+      if (myTeamIdRef.current !== 'spectator') {
+        setOpponentLeft(true);
+      }
     });
 
     socket.on('roomError', ({ message }) => {
       setLobbyError(message);
     });
 
+    // Check if we have a watch link in the URL on load
+    const path = window.location.pathname;
+    const watchMatch = path.match(/^\/watch\/([A-Za-z0-9]+)/);
+    if (watchMatch) {
+      const code = watchMatch[1].toUpperCase();
+      myTeamIdRef.current = 'spectator';
+      setRoomCode(code);
+      setMyTeamId('spectator');
+      setLobbyStage('waiting');
+      setLobbyError('');
+      socket.emit('joinSpectator', { roomCode: code });
+    }
+
     return () => {
       socket.off('roomCreated');
       socket.off('roomJoined');
+      socket.off('roomJoinedSpectator');
       socket.off('playerJoined');
       socket.off('gameState');
       socket.off('opponentDisconnected');
@@ -291,6 +316,30 @@ export default function App() {
                   </button>
                 </>
               )}
+
+              <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 16, marginTop: 10 }}>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 8 }}>Want spectators to watch?</div>
+                <button
+                  className="btn-primary"
+                  style={{
+                    background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    fontSize: 14,
+                    padding: '10px 20px',
+                    width: 'auto'
+                  }}
+                  onClick={() => {
+                    const url = `${window.location.origin}/watch/${roomCode}`;
+                    navigator.clipboard.writeText(url);
+                    alert(`Spectator watch link copied to clipboard:\n${url}`);
+                  }}
+                >
+                  👁️ Watch Live (Copy Link)
+                </button>
+              </div>
             </>
           )}
 
@@ -298,6 +347,21 @@ export default function App() {
             <div style={{ color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
               <div className="loading-dot" />
               Waiting for host to start the game…
+            </div>
+          )}
+
+          {myTeamId === 'spectator' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
+              <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+                You are spectating Room: <strong style={{ color: '#f59e0b', letterSpacing: 1 }}>{roomCode}</strong>
+              </div>
+              <div style={{ color: '#3b82f6', fontWeight: 600, fontSize: 18, background: 'rgba(59,130,246,0.1)', padding: '10px', borderRadius: 8 }}>
+                👁️ Spectator Mode
+              </div>
+              <div style={{ color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
+                <div className="loading-dot" />
+                Waiting for host to start the game…
+              </div>
             </div>
           )}
 
@@ -467,9 +531,15 @@ export default function App() {
           )}
 
           {canPlayMatch && (
-            <button className="btn-primary" style={{ background: 'linear-gradient(135deg, #10b981, #059669)', fontSize: 18 }} onClick={handleSimulateMatch}>
-              ⚽ Simulate Match!
-            </button>
+            myTeamId === 'spectator' ? (
+              <div style={{ textAlign: 'center', fontSize: 15, color: 'var(--text-secondary)', padding: '10px', background: 'rgba(255,255,255,0.03)', borderRadius: 8 }}>
+                ⏳ Waiting for host to simulate the match…
+              </div>
+            ) : (
+              <button className="btn-primary" style={{ background: 'linear-gradient(135deg, #10b981, #059669)', fontSize: 18 }} onClick={handleSimulateMatch}>
+                ⚽ Simulate Match!
+              </button>
+            )
           )}
 
           {myTeamId === 'team1' && (
@@ -479,6 +549,9 @@ export default function App() {
           )}
           {myTeamId === 'team2' && (
             <div style={{ textAlign: 'center', fontSize: 13, color: 'var(--text-secondary)' }}>Waiting for host to restart…</div>
+          )}
+          {myTeamId === 'spectator' && (
+            <div style={{ textAlign: 'center', fontSize: 13, color: 'var(--text-secondary)', marginTop: canPlayMatch ? 10 : 0 }}>Waiting for host to restart…</div>
           )}
         </div>
       </div>
@@ -598,9 +671,11 @@ export default function App() {
         </div>
 
         <div style={{ maxWidth: 1100, margin: '24px auto 0', display: 'flex', gap: 12 }}>
-          <button className="btn-primary" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }} onClick={handleSimulateMatch}>
-            🔄 Simulate Again
-          </button>
+          {myTeamId !== 'spectator' && (
+            <button className="btn-primary" style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }} onClick={handleSimulateMatch}>
+              🔄 Simulate Again
+            </button>
+          )}
           {myTeamId === 'team1' && (
             <button className="btn-primary" style={{ background: 'var(--border-color)' }} onClick={handlePlayAgain}>
               🏠 New Game
@@ -608,6 +683,9 @@ export default function App() {
           )}
           {myTeamId === 'team2' && (
             <span style={{ color: 'var(--text-secondary)', fontSize: 13, display: 'flex', alignItems: 'center' }}>Waiting for host to restart…</span>
+          )}
+          {myTeamId === 'spectator' && (
+            <span style={{ color: 'var(--text-secondary)', fontSize: 13, display: 'flex', alignItems: 'center' }}>Spectating Live Match… Waiting for host to restart or simulate again.</span>
           )}
         </div>
       </div>
@@ -621,14 +699,54 @@ export default function App() {
   return (
     <div className="app-container">
       {/* Header */}
-      <header className="header">
-        <h1>BidBall</h1>
-        <div className="header-status">
-          Room: <strong style={{ color: '#f59e0b', letterSpacing: 2 }}>{roomCode}</strong>
-          {' '}| Player {currentPlayerIndex + 1} of 21
-          {' '}| You: <strong style={{ color: myTeamId === 'team1' ? 'var(--team-a-color)' : 'var(--team-b-color)' }}>
-            {myTeamId === 'team1' ? team1.name : team2.name}
-          </strong>
+      <header className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <h1 style={{ margin: 0 }}>BidBall</h1>
+          {myTeamId === 'spectator' && (
+            <span style={{
+              background: 'rgba(59,130,246,0.15)',
+              color: '#3b82f6',
+              padding: '4px 10px',
+              borderRadius: 6,
+              fontSize: 12,
+              fontWeight: 800,
+              border: '1px solid rgba(59,130,246,0.3)',
+              letterSpacing: '0.5px'
+            }}>👁️ SPECTATOR</span>
+          )}
+        </div>
+        <div className="header-status" style={{ display: 'flex', alignItems: 'center', gap: 15, margin: 0 }}>
+          <div>
+            Room: <strong style={{ color: '#f59e0b', letterSpacing: 2 }}>{roomCode}</strong>
+            {' '}| Player {currentPlayerIndex + 1} of 21
+            {' '}| You: <strong style={{ color: myTeamId === 'team1' ? 'var(--team-a-color)' : (myTeamId === 'team2' ? 'var(--team-b-color)' : '#9ca3af') }}>
+              {myTeamId === 'team1' ? team1.name : (myTeamId === 'team2' ? team2.name : 'Spectator')}
+            </strong>
+          </div>
+          {myTeamId === 'team1' && (
+            <button
+              style={{
+                background: 'rgba(59,130,246,0.15)',
+                border: '1px solid #3b82f6',
+                color: '#3b82f6',
+                borderRadius: 6,
+                padding: '6px 12px',
+                fontSize: 12,
+                cursor: 'pointer',
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5
+              }}
+              onClick={() => {
+                const url = `${window.location.origin}/watch/${roomCode}`;
+                navigator.clipboard.writeText(url);
+                alert(`Spectator watch link copied to clipboard:\n${url}`);
+              }}
+            >
+              👁️ Watch Link
+            </button>
+          )}
         </div>
       </header>
 
@@ -712,7 +830,7 @@ export default function App() {
               <div className={`team-panel team-a ${activeTurn !== 'team1' ? 'inactive' : ''}`}>
                 <div className="team-panel-header">
                   <span className="team-panel-title">{team1.name}</span>
-                  {activeTurn === 'team1' && <span className="team-turn-indicator">YOUR TURN</span>}
+                  {activeTurn === 'team1' && <span className="team-turn-indicator">{myTeamId === 'team1' ? 'YOUR TURN' : 'TURN'}</span>}
                 </div>
                 <div className="team-panel-budget">Budget: ${team1.money}M</div>
 
@@ -748,7 +866,7 @@ export default function App() {
               <div className={`team-panel team-b ${activeTurn !== 'team2' ? 'inactive' : ''}`}>
                 <div className="team-panel-header">
                   <span className="team-panel-title">{team2.name}</span>
-                  {activeTurn === 'team2' && <span className="team-turn-indicator">YOUR TURN</span>}
+                  {activeTurn === 'team2' && <span className="team-turn-indicator">{myTeamId === 'team2' ? 'YOUR TURN' : 'TURN'}</span>}
                 </div>
                 <div className="team-panel-budget">Budget: ${team2.money}M</div>
 
@@ -782,7 +900,7 @@ export default function App() {
             </div>
 
             {/* Skip when skipped */}
-            {biddingMode === 'skipped' && (
+            {biddingMode === 'skipped' && myTeamId !== 'spectator' && (
               <button className="btn-primary" onClick={handleSkipPlayer}>
                 Skip Player & Continue
               </button>
