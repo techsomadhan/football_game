@@ -337,7 +337,7 @@ export default function App() {
                     alert(`Spectator watch link copied to clipboard:\n${url}`);
                   }}
                 >
-                  👁️ Watch Live (Copy Link)
+                   Watch Live (Copy Link)
                 </button>
               </div>
             </>
@@ -356,7 +356,7 @@ export default function App() {
                 You are spectating Room: <strong style={{ color: '#f59e0b', letterSpacing: 1 }}>{roomCode}</strong>
               </div>
               <div style={{ color: '#3b82f6', fontWeight: 600, fontSize: 18, background: 'rgba(59,130,246,0.1)', padding: '10px', borderRadius: 8 }}>
-                👁️ Spectator Mode
+                 Spectator Mode
               </div>
               <div style={{ color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
                 <div className="loading-dot" />
@@ -712,7 +712,7 @@ export default function App() {
               fontWeight: 800,
               border: '1px solid rgba(59,130,246,0.3)',
               letterSpacing: '0.5px'
-            }}>👁️ SPECTATOR</span>
+            }}> SPECTATOR</span>
           )}
         </div>
         <div className="header-status" style={{ display: 'flex', alignItems: 'center', gap: 15, margin: 0 }}>
@@ -744,7 +744,7 @@ export default function App() {
                 alert(`Spectator watch link copied to clipboard:\n${url}`);
               }}
             >
-              👁️ Watch Link
+               Watch Link
             </button>
           )}
         </div>
